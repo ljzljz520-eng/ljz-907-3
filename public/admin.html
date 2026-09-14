@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>管理后台 - 企业培训视频目录</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="topbar">
+    <h1>企业培训视频目录 · 管理后台</h1>
+    <div class="user">
+      <span id="who"></span>
+      <button class="ghost" onclick="logout()">退出登录</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="tabs">
+      <button class="active" data-tab="stats" onclick="switchTab('stats')">📊 学习统计</button>
+      <button data-tab="import" onclick="switchTab('import')">📥 批量导入</button>
+      <button data-tab="courses" onclick="switchTab('courses')">📚 课程管理</button>
+    </div>
+
+    <!-- 学习统计 -->
+    <div id="tab-stats">
+      <div class="card">
+        <h2>各视频学习人数 <span class="hint" id="statsSummary"></span></h2>
+        <table>
+          <thead><tr>
+            <th>课程标题</th><th>讲师</th><th>适用岗位</th><th>时长</th><th>更新日期</th><th>学习人数</th>
+          </tr></thead>
+          <tbody id="statsBody"></tbody>
+        </table>
+        <div id="statsEmpty" class="empty" style="display:none">还没有课程，请先到「批量导入」上传 CSV</div>
+      </div>
+    </div>
+
+    <!-- 批量导入 -->
+    <div id="tab-import" style="display:none">
+      <div class="card">
+        <h2>CSV 批量导入课程</h2>
+        <div class="msg" id="importMsg"></div>
+        <div class="upload-row">
+          <input type="file" id="csvFile" accept=".csv">
+          <button onclick="doImport()" id="importBtn">开始导入</button>
+          <a href="/api/admin/template.csv"><button class="ghost" type="button">下载 CSV 模板</button></a>
+        </div>
+        <div class="hint">
+          必需列：课程标题、视频链接、讲师、适用岗位、时长、更新日期。<br>
+          校验规则：缺讲师或缺链接的行会被<b>拦截</b>，不会导入成空课程；链接须以 http(s):// 开头；
+          岗位限：销售、技术、客服、运营、人事、全部（多岗位用「、」分隔）；日期格式 YYYY-MM-DD；重复课程自动跳过。
+        </div>
+      </div>
+      <div class="card" id="reportCard" style="display:none">
+        <h2>导入结果</h2>
+        <div class="report" id="report"></div>
+      </div>
+    </div>
+
+    <!-- 课程管理 -->
+    <div id="tab-courses" style="display:none">
+      <div class="card">
+        <h2>课程列表</h2>
+        <table>
+          <thead><tr>
+            <th>ID</th><th>课程标题</th><th>讲师</th><th>适用岗位</th><th>时长</th><th>更新日期</th><th>操作</th>
+          </tr></thead>
+          <tbody id="courseBody"></tbody>
+        </table>
+        <div id="courseEmpty" class="empty" style="display:none">暂无课程</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function init() {
+      const res = await fetch('/api/me');
+      if (!res.ok) { location.href = '/login.html'; return; }
+      const me = await res.json();
+      if (me.role !== 'admin') { location.href = '/employee.html'; return; }
+      document.getElementById('who').textContent = `${me.name}（管理员）`;
+      loadStats();
+    }
+
+    function switchTab(tab) {
+      for (const t of ['stats', 'import', 'courses']) {
+        document.getElementById('tab-' + t).style.display = t === tab ? 'block' : 'none';
+      }
+      document.querySelectorAll('.tabs button').forEach(b =>
+        b.classList.toggle('active', b.dataset.tab === tab));
+      if (tab === 'stats') loadStats();
+      if (tab === 'courses') loadCourses();
+    }
+
+    // ---- 学习统计 ----
+    async function loadStats() {
+      const res = await fetch('/api/admin/stats');
+      const data = await res.json();
+      document.getElementById('statsSummary').textContent = `（共 ${data.total_courses} 门课程）`;
+      document.getElementById('statsEmpty').style.display = data.courses.length ? 'none' : 'block';
+      document.getElementById('statsBody').innerHTML = data.courses.map(c => `
+        <tr>
+          <td><a href="${esc(c.video_url)}" target="_blank" rel="noopener">${esc(c.title)}</a></td>
+          <td>${esc(c.instructor)}</td>
+          <td>${c.positions.split(',').map(p => `<span class="tag">${esc(p)}</span>`).join('')}</td>
+          <td>${esc(c.duration)}</td>
+          <td>${esc(c.updated_at)}</td>
+          <td>
+            <span class="tag ${c.learn_count > 0 ? 'green' : 'gray'}">${c.learn_count} 人</span>
+            ${c.learners.length ? `<div class="learners">${c.learners.map(l => `${esc(l.name)}(${esc(l.position)})`).join('、')}</div>` : ''}
+          </td>
+        </tr>`).join('');
+    }
+
+    // ---- 批量导入 ----
+    async function doImport() {
+      const file = document.getElementById('csvFile').files[0];
+      const msg = document.getElementById('importMsg');
+      msg.className = 'msg'; msg.textContent = '';
+      if (!file) { msg.className = 'msg err'; msg.textContent = '请先选择 CSV 文件'; return; }
+      const btn = document.getElementById('importBtn');
+      btn.disabled = true; btn.textContent = '导入中…';
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        const res = await fetch('/api/admin/import', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) {
+          msg.className = 'msg err'; msg.textContent = data.error || '导入失败';
+          document.getElementById('reportCard').style.display = 'none';
+          return;
+        }
+        msg.className = 'msg ok';
+        msg.textContent = `导入完成：成功 ${data.imported_count} 条，跳过 ${data.skipped_count} 条，拦截 ${data.failed_count} 条（共 ${data.total_rows} 行）`;
+        renderReport(data);
+      } finally {
+        btn.disabled = false; btn.textContent = '开始导入';
+      }
+    }
+
+    function renderReport(data) {
+      const card = document.getElementById('reportCard');
+      card.style.display = 'block';
+      let html = '';
+      if (data.failed.length) {
+        html += `<div class="sec"><div class="sec-title" style="color:#c0392b">⛔ 被拦截的行（${data.failed.length}）</div><ul>` +
+          data.failed.map(f => `<li>第 ${f.row} 行《${esc(f.title)}》：${f.errors.map(esc).join('；')}</li>`).join('') + '</ul></div>';
+      }
+      if (data.skipped.length) {
+        html += `<div class="sec"><div class="sec-title" style="color:#b8860b">⏭ 跳过的行（${data.skipped.length}）</div><ul>` +
+          data.skipped.map(s => `<li>第 ${s.row} 行《${esc(s.title)}》：${esc(s.reason)}</li>`).join('') + '</ul></div>';
+      }
+      if (data.imported.length) {
+        html += `<div class="sec"><div class="sec-title" style="color:#1a7f43">✅ 成功导入（${data.imported.length}）</div><ul>` +
+          data.imported.map(i => `<li>第 ${i.row} 行《${esc(i.title)}》</li>`).join('') + '</ul></div>';
+      }
+      document.getElementById('report').innerHTML = html || '没有数据';
+    }
+
+    // ---- 课程管理 ----
+    async function loadCourses() {
+      const res = await fetch('/api/admin/courses');
+      const courses = await res.json();
+      document.getElementById('courseEmpty').style.display = courses.length ? 'none' : 'block';
+      document.getElementById('courseBody').innerHTML = courses.map(c => `
+        <tr>
+          <td>${c.id}</td>
+          <td><a href="${esc(c.video_url)}" target="_blank" rel="noopener">${esc(c.title)}</a></td>
+          <td>${esc(c.instructor)}</td>
+          <td>${c.positions.split(',').map(p => `<span class="tag">${esc(p)}</span>`).join('')}</td>
+          <td>${esc(c.duration)}</td>
+          <td>${esc(c.updated_at)}</td>
+          <td><button class="danger" onclick="delCourse(${c.id}, '${esc(c.title).replace(/'/g, "\\'")}')">删除</button></td>
+        </tr>`).join('');
+    }
+
+    async function delCourse(id, title) {
+      if (!confirm(`确定删除课程《${title}》？相关学习记录会一并删除。`)) return;
+      const res = await fetch('/api/admin/courses/' + id, { method: 'DELETE' });
+      if (res.ok) loadCourses();
+    }
+
+    async function logout() {
+      await fetch('/api/logout', { method: 'POST' });
+      location.href = '/login.html';
+    }
+
+    function esc(s) {
+      return String(s ?? '').replace(/[&<>"']/g, ch =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+    }
+
+    init();
+  </script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登录 - 企业培训视频目录</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="card">
+      <h1>企业培训视频目录</h1>
+      <p class="sub">请使用公司账号登录</p>
+      <div class="msg err" id="msg"></div>
+      <input id="username" placeholder="用户名" autocomplete="username">
+      <input id="password" type="password" placeholder="密码" autocomplete="current-password">
+      <button id="btn">登 录</button>
+      <div class="login-tip">
+        管理员：admin / admin123<br>
+        员工示例：wangfang（销售）、liqiang（技术）、zhaomin（客服）、sunli（运营），密码均为 123456
+      </div>
+    </div>
+  </div>
+  <script>
+    const msg = document.getElementById('msg');
+    async function login() {
+      msg.className = 'msg'; msg.textContent = '';
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const res = await fetch('/api/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) { msg.className = 'msg err'; msg.textContent = data.error || '登录失败'; return; }
+      location.href = data.role === 'admin' ? '/admin.html' : '/employee.html';
+    }
+    document.getElementById('btn').onclick = login;
+    document.getElementById('password').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+  </script>
+</body>
+</html>

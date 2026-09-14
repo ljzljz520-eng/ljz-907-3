@@ -1,0 +1,17 @@
+{
+  "name": "training-video-directory",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "description": "企业培训视频目录系统",
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "express": "^5.2.1",
+    "multer": "^2.3.0",
+    "sql.js": "^1.14.2"
+  }
+}

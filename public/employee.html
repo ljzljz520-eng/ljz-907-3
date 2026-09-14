@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>我的培训 - 企业培训视频目录</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="topbar">
+    <h1>企业培训视频目录</h1>
+    <div class="user">
+      <span id="who"></span>
+      <button class="ghost" onclick="logout()">退出登录</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="card">
+      <h2>课程筛选</h2>
+      <div class="filter-bar">
+        <label>岗位：</label>
+        <select id="posSelect"></select>
+        <label><input type="checkbox" id="onlyUnlearned"> 只显示未学习</label>
+        <span class="hint" id="statHint"></span>
+      </div>
+    </div>
+
+    <div id="list" class="course-grid"></div>
+    <div id="empty" class="empty" style="display:none">该岗位暂无课程</div>
+  </div>
+
+  <script>
+    let me = null, allCourses = [];
+
+    async function init() {
+      const res = await fetch('/api/me');
+      if (!res.ok) { location.href = '/login.html'; return; }
+      me = await res.json();
+      document.getElementById('who').textContent = `${me.name}（${me.position || '员工'}）`;
+
+      const posRes = await fetch('/api/positions');
+      const positions = await posRes.json();
+      const sel = document.getElementById('posSelect');
+      sel.innerHTML = positions.map(p => `<option value="${p}" ${p === me.position ? 'selected' : ''}>${p}</option>`).join('');
+      sel.onchange = load;
+      document.getElementById('onlyUnlearned').onchange = render;
+      await load();
+    }
+
+    async function load() {
+      const pos = document.getElementById('posSelect').value;
+      const res = await fetch('/api/courses?position=' + encodeURIComponent(pos));
+      const data = await res.json();
+      allCourses = data.courses;
+      render();
+    }
+
+    function render() {
+      const onlyUn = document.getElementById('onlyUnlearned').checked;
+      const list = allCourses.filter(c => !onlyUn || !c.learned);
+      const learnedCount = allCourses.filter(c => c.learned).length;
+      document.getElementById('statHint').textContent =
+        `共 ${allCourses.length} 门课，已学 ${learnedCount} 门`;
+      document.getElementById('empty').style.display = list.length ? 'none' : 'block';
+      document.getElementById('list').innerHTML = list.map(c => `
+        <div class="course-card">
+          <h3>${esc(c.title)} ${c.learned ? '<span class="tag green">已学习</span>' : '<span class="tag gray">未学习</span>'}</h3>
+          <div class="meta">
+            讲师：<b>${esc(c.instructor)}</b><br>
+            适用岗位：${c.positions.split(',').map(p => `<span class="tag">${esc(p)}</span>`).join('')}<br>
+            时长：${esc(c.duration)}　更新日期：${esc(c.updated_at)}
+            ${c.learned && c.learned_at ? `<br>学习时间：${esc(c.learned_at)}` : ''}
+          </div>
+          <div class="actions">
+            <a href="${esc(c.video_url)}" target="_blank" rel="noopener"><button>▶ 观看视频</button></a>
+            <button class="${c.learned ? 'ghost' : ''}" onclick="toggleLearn(${c.id}, ${!c.learned})">
+              ${c.learned ? '取消已学标记' : '标记为已学习'}
+            </button>
+          </div>
+        </div>`).join('');
+    }
+
+    async function toggleLearn(id, learned) {
+      const res = await fetch('/api/learn', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ course_id: id, learned }),
+      });
+      if (res.ok) {
+        const c = allCourses.find(x => x.id === id);
+        if (c) { c.learned = learned; c.learned_at = learned ? new Date().toLocaleString('zh-CN') : null; }
+        render();
+      }
+    }
+
+    async function logout() {
+      await fetch('/api/logout', { method: 'POST' });
+      location.href = '/login.html';
+    }
+
+    function esc(s) {
+      return String(s ?? '').replace(/[&<>"']/g, ch =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+    }
+
+    init();
+  </script>
+</body>
+</html>
